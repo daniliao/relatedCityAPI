@@ -4,44 +4,52 @@
 //
 //  Created by Daniel on 4/1/25.
 //
+
 import SwiftUI
 import MapKit
 import CoreLocation
 
-
 class CityViewModel: ObservableObject {
     @Published var cities: [City] = []
-    private let apiKey = "aweoifn1"
     
     func fetchCities(lat: Double, lon: Double) {
-        // Define the bounding box (north, south, east, west)
-        let boundingBox = "north=\(lat + 1.0)&south=\(lat - 1.0)&east=\(lon + 1.0)&west=\(lon - 1.0)"
-        
-        let url = URL(string: "http://api.geonames.org/citiesJSON?\(boundingBox)&maxRows=10&lang=en&username=\(apiKey)")!
-        
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data {
-                if let decodedResponse = try? JSONDecoder().decode(CityResponse.self, from: data) {
-                    DispatchQueue.main.async {
-                        self.cities = decodedResponse.geonames.map {
-                            City(name: $0.name, country: $0.countrycode, population: $0.population, latitude: $0.lat, longitude: $0.lng)
-                        }
-                    }
-                }
-            }
+        guard let url = buildCityURL(lat: lat, lon: lon) else {
+            return
         }
-        task.resume()
+        fetchCityData(url)
     }
-}
-
-struct CityResponse: Codable {
-    let geonames: [CityData]
-}
-
-struct CityData: Codable {
-    let name: String
-    let countrycode: String
-    let population: Int
-    let lat: Double
-    let lng: Double
+    
+    private func buildCityURL(lat: Double, lon: Double) -> URL? {
+        let boundingBox = "north=\(lat + 1.0)&south=\(lat - 1.0)&east=\(lon + 1.0)&west=\(lon - 1.0)"
+        let urlString = "http://api.geonames.org/citiesJSON?\(boundingBox)&maxRows=10&lang=en&username=aweoifn1"
+        return URL(string: urlString)
+    }
+    
+    private func fetchCityData(_ url: URL) {
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data else { return }
+            self.parseCityData(data)
+        }.resume()
+    }
+    
+    private func parseCityData(_ data: Data) {
+        guard let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let geonames = jsonObject["geonames"] as? [[String: Any]] else { return }
+        
+        let cities = geonames.compactMap { self.createCity(from: $0) }
+        
+        DispatchQueue.main.async {
+            self.cities = cities
+        }
+    }
+    
+    private func createCity(from cityDict: [String: Any]) -> City? {
+        guard let name = cityDict["name"] as? String,
+              let country = cityDict["countrycode"] as? String,
+              let population = cityDict["population"] as? Int,
+              let lat = cityDict["lat"] as? Double,
+              let lon = cityDict["lng"] as? Double else { return nil }
+        
+        return City(name: name, country: country, population: population, latitude: lat, longitude: lon)
+    }
 }
